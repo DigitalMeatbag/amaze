@@ -1,0 +1,322 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>amaze terminal scale calibration</title>
+  <style>
+    :root {
+      color-scheme: dark;
+      --bg: #050607;
+      --fg: #d6e6d6;
+      --muted: #7f8b82;
+      --panel: rgba(5, 7, 8, 0.86);
+      --line: rgba(120, 150, 125, 0.36);
+      --accent: #7cff88;
+      --warn: #ffd27a;
+    }
+
+    html,
+    body {
+      width: 100%;
+      height: 100%;
+      margin: 0;
+      overflow: hidden;
+      background: var(--bg);
+      color: var(--fg);
+      font-family: Consolas, "Cascadia Mono", "Courier New", monospace;
+    }
+
+    canvas {
+      position: fixed;
+      inset: 0;
+      width: 100vw;
+      height: 100vh;
+      display: block;
+      background: #020303;
+    }
+
+    .hud {
+      position: fixed;
+      left: 18px;
+      top: 18px;
+      max-width: min(680px, calc(100vw - 36px));
+      box-sizing: border-box;
+      padding: 14px 16px 12px;
+      border: 1px solid var(--line);
+      background: var(--panel);
+      box-shadow: 0 0 18px rgba(0, 0, 0, 0.55);
+      font-size: 14px;
+      line-height: 1.45;
+    }
+
+    .hud h1 {
+      margin: 0 0 8px;
+      font-size: 15px;
+      font-weight: 700;
+      color: var(--accent);
+      letter-spacing: 0;
+    }
+
+    .row {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 10px 18px;
+      margin: 6px 0;
+    }
+
+    .label {
+      color: var(--muted);
+    }
+
+    .value {
+      color: var(--fg);
+    }
+
+    .controls {
+      margin-top: 10px;
+      color: var(--muted);
+    }
+
+    .keys {
+      color: var(--warn);
+    }
+
+    .presets {
+      position: fixed;
+      left: 18px;
+      bottom: 18px;
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+      max-width: calc(100vw - 36px);
+    }
+
+    button {
+      min-width: 76px;
+      border: 1px solid var(--line);
+      background: rgba(8, 12, 10, 0.9);
+      color: var(--fg);
+      font: 13px Consolas, "Cascadia Mono", "Courier New", monospace;
+      padding: 8px 10px;
+      cursor: pointer;
+    }
+
+    button.active {
+      border-color: var(--accent);
+      color: #021304;
+      background: var(--accent);
+    }
+
+    button:hover {
+      border-color: var(--warn);
+    }
+  </style>
+</head>
+<body>
+  <canvas id="screen"></canvas>
+
+  <section class="hud" aria-live="polite">
+    <h1>amaze terminal scale calibration</h1>
+    <div class="row">
+      <span><span class="label">Preset:</span> <span class="value" id="presetName"></span></span>
+      <span><span class="label">Font:</span> <span class="value" id="fontSize"></span></span>
+      <span><span class="label">Cell:</span> <span class="value" id="cellSize"></span></span>
+      <span><span class="label">Grid:</span> <span class="value" id="gridSize"></span></span>
+    </div>
+    <div class="row">
+      <span><span class="label">Viewport:</span> <span class="value" id="viewportSize"></span></span>
+      <span><span class="label">DPR:</span> <span class="value" id="dpr"></span></span>
+      <span><span class="label">Approx cells:</span> <span class="value" id="cellCount"></span></span>
+    </div>
+    <div class="controls">
+      <span class="keys">Left/Right</span> change scale,
+      <span class="keys">F</span> fullscreen,
+      <span class="keys">H</span> hide this overlay.
+      Pick the scale that feels closest to ScreenFetch.
+    </div>
+  </section>
+
+  <nav class="presets" id="presetButtons" aria-label="Scale presets"></nav>
+
+  <script>
+    const canvas = document.getElementById("screen");
+    const ctx = canvas.getContext("2d", { alpha: false });
+    const hud = document.querySelector(".hud");
+    const presetButtons = document.getElementById("presetButtons");
+
+    const fields = {
+      presetName: document.getElementById("presetName"),
+      fontSize: document.getElementById("fontSize"),
+      cellSize: document.getElementById("cellSize"),
+      gridSize: document.getElementById("gridSize"),
+      viewportSize: document.getElementById("viewportSize"),
+      dpr: document.getElementById("dpr"),
+      cellCount: document.getElementById("cellCount"),
+    };
+
+    const presets = [
+      { name: "Tiny", fontSize: 12, cellW: 8, cellH: 15 },
+      { name: "Small", fontSize: 14, cellW: 9, cellH: 17 },
+      { name: "Compact", fontSize: 16, cellW: 10, cellH: 19 },
+      { name: "Medium", fontSize: 18, cellW: 11, cellH: 22 },
+      { name: "Large", fontSize: 20, cellW: 12, cellH: 24 },
+      { name: "XL", fontSize: 22, cellW: 14, cellH: 27 },
+      { name: "Huge", fontSize: 24, cellW: 15, cellH: 30 },
+      { name: "Poster", fontSize: 28, cellW: 17, cellH: 34 },
+    ];
+
+    const wallGlyphs = ["#", "#", "#", "+", "|", "-"];
+    const floorGlyphs = [".", ".", ".", ",", "`"];
+    const trailGlyphs = ["*", "+", "x", "o"];
+    let presetIndex = Math.max(0, presets.findIndex((preset) => preset.name === localStorage.getItem("amaze-scale-preset")));
+    let hiddenHud = false;
+    let elapsed = 0;
+    let lastTime = performance.now();
+
+    if (presetIndex < 0) {
+      presetIndex = 3;
+    }
+
+    function buildButtons() {
+      presetButtons.innerHTML = "";
+      presets.forEach((preset, index) => {
+        const button = document.createElement("button");
+        button.type = "button";
+        button.textContent = preset.name;
+        button.addEventListener("click", () => {
+          presetIndex = index;
+          localStorage.setItem("amaze-scale-preset", presets[presetIndex].name);
+          updateButtonState();
+          draw(performance.now());
+        });
+        presetButtons.appendChild(button);
+      });
+      updateButtonState();
+    }
+
+    function updateButtonState() {
+      [...presetButtons.children].forEach((button, index) => {
+        button.classList.toggle("active", index === presetIndex);
+      });
+    }
+
+    function resizeCanvas() {
+      const dpr = window.devicePixelRatio || 1;
+      const width = window.innerWidth;
+      const height = window.innerHeight;
+      canvas.width = Math.max(1, Math.floor(width * dpr));
+      canvas.height = Math.max(1, Math.floor(height * dpr));
+      ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    }
+
+    function hash2(x, y, seed) {
+      let n = x * 374761393 + y * 668265263 + seed * 2147483647;
+      n = (n ^ (n >>> 13)) * 1274126177;
+      return (n ^ (n >>> 16)) >>> 0;
+    }
+
+    function glyphAt(col, row, cols, rows, time) {
+      if (col === 0 || row === 0 || col === cols - 1 || row === rows - 1) {
+        return { char: "#", color: "#87d68d" };
+      }
+
+      const h = hash2(col, row, 17);
+      const corridor = row % 4 === 2 || col % 7 === 3 || ((h % 19) < 3 && row % 2 === 0);
+      const pathWave = Math.floor((time * 20) % Math.max(1, cols + rows));
+      const onPath = Math.abs((col + row) - pathWave) < 3 && corridor;
+
+      if (col === 2 && row === 2) {
+        return { char: "@", color: "#ff6b6b" };
+      }
+      if (col === cols - 3 && row === rows - 3) {
+        return { char: ">", color: "#ffd27a" };
+      }
+      if (onPath) {
+        return { char: trailGlyphs[(col + row) % trailGlyphs.length], color: "#ff6b6b" };
+      }
+      if (corridor) {
+        return { char: floorGlyphs[h % floorGlyphs.length], color: "#52665a" };
+      }
+      return { char: wallGlyphs[h % wallGlyphs.length], color: h % 5 === 0 ? "#6cae75" : "#37543d" };
+    }
+
+    function draw(now) {
+      const delta = Math.min(0.05, (now - lastTime) / 1000);
+      lastTime = now;
+      elapsed += delta;
+
+      const preset = presets[presetIndex];
+      const width = window.innerWidth;
+      const height = window.innerHeight;
+      const cols = Math.floor(width / preset.cellW);
+      const rows = Math.floor(height / preset.cellH);
+      const offsetX = Math.floor((width - cols * preset.cellW) / 2);
+      const offsetY = Math.floor((height - rows * preset.cellH) / 2);
+
+      ctx.fillStyle = "#020303";
+      ctx.fillRect(0, 0, width, height);
+
+      ctx.font = `${preset.fontSize}px Consolas, "Cascadia Mono", "Courier New", monospace`;
+      ctx.textAlign = "center";
+      ctx.textBaseline = "middle";
+
+      for (let row = 0; row < rows; row += 1) {
+        for (let col = 0; col < cols; col += 1) {
+          const glyph = glyphAt(col, row, cols, rows, elapsed);
+          ctx.fillStyle = glyph.color;
+          ctx.fillText(
+            glyph.char,
+            offsetX + col * preset.cellW + preset.cellW / 2,
+            offsetY + row * preset.cellH + preset.cellH / 2
+          );
+        }
+      }
+
+      ctx.fillStyle = "rgba(124, 255, 136, 0.08)";
+      for (let row = 0; row < rows; row += 4) {
+        ctx.fillRect(offsetX, offsetY + row * preset.cellH, cols * preset.cellW, 1);
+      }
+
+      fields.presetName.textContent = preset.name;
+      fields.fontSize.textContent = `${preset.fontSize}px`;
+      fields.cellSize.textContent = `${preset.cellW}x${preset.cellH}px`;
+      fields.gridSize.textContent = `${cols}x${rows}`;
+      fields.viewportSize.textContent = `${width}x${height}`;
+      fields.dpr.textContent = String(window.devicePixelRatio || 1);
+      fields.cellCount.textContent = String(cols * rows);
+
+      requestAnimationFrame(draw);
+    }
+
+    function changePreset(delta) {
+      presetIndex = (presetIndex + delta + presets.length) % presets.length;
+      localStorage.setItem("amaze-scale-preset", presets[presetIndex].name);
+      updateButtonState();
+    }
+
+    document.addEventListener("keydown", (event) => {
+      if (event.key === "ArrowRight") {
+        changePreset(1);
+      } else if (event.key === "ArrowLeft") {
+        changePreset(-1);
+      } else if (event.key.toLowerCase() === "f") {
+        if (!document.fullscreenElement) {
+          document.documentElement.requestFullscreen();
+        } else {
+          document.exitFullscreen();
+        }
+      } else if (event.key.toLowerCase() === "h") {
+        hiddenHud = !hiddenHud;
+        hud.style.display = hiddenHud ? "none" : "";
+        presetButtons.style.display = hiddenHud ? "none" : "";
+      }
+    });
+
+    window.addEventListener("resize", resizeCanvas);
+    buildButtons();
+    resizeCanvas();
+    requestAnimationFrame(draw);
+  </script>
+</body>
+</html>
