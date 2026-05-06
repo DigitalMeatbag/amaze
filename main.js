@@ -195,6 +195,15 @@ function formatHudMs(ms) {
   return (ms / 1000).toFixed(1) + "s";
 }
 
+function applyHudTheme(t) {
+  if (!hudEl) return;
+  const c = t.hudPalette();
+  hudEl.style.setProperty("--hud-text",   c.text);
+  hudEl.style.setProperty("--hud-label",  c.label);
+  hudEl.style.setProperty("--hud-border", c.border);
+  hudEl.style.setProperty("--hud-sep",    c.sep);
+}
+
 function updateHud() {
   if (!hudGen) return;
 
@@ -272,6 +281,7 @@ function startCycle() {
   theme = t.theme;
   activeThemeKey = t.key;
   theme.setIntensity(config.intensity);
+  applyHudTheme(theme);
 
   // Resize canvas + body bg with new theme.
   const dims = renderer.resize(config.scale, theme.backgroundColor);

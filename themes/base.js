@@ -237,6 +237,20 @@ export class BaseTheme {
 
   _solveAccent() { return "#FFFFFF"; }
 
+  // Derive HUD colors from the wall palette entry.
+  hudPalette() {
+    const wall = this.palette.wall;
+    const [r, g, b] = hexToRgb(wall);
+    const text  = lerpHex(wall, "#888888", 0.55);
+    const label = applyAttention(text, 0.45);
+    return {
+      text,
+      label,
+      border: `rgba(${r},${g},${b},0.28)`,
+      sep:    `rgba(${r},${g},${b},0.18)`,
+    };
+  }
+
   // Optional overlay layer drawn after all cells.
   renderOverlay(ctx, D_cols, D_rows, cw, ch, frameCount) {
     // default: no-op

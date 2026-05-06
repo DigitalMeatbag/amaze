@@ -21,18 +21,17 @@ export class WallFollower {
     this.D_cols = D_cols;
     this.D_rows = D_rows;
     this.trace = trace;
-    this.startIdx = startIdx;
     this.goalIdx = goalIdx;
     const sc = startIdx % D_cols, sr = (startIdx / D_cols) | 0;
     trace.actorCell = [sc, sr];
     trace.visited.add(startIdx);
     trace.breadcrumb.set(startIdx, 1);
     trace.movementHistory.push(startIdx);
-    // Choose initial facing: first passable neighbor in N,E,S,W order.
     this.facing = "N";
     for (const f of ["N", "E", "S", "W"]) {
       if (this._canMove(sc, sr, f)) { this.facing = f; break; }
     }
+    this.recentCells = [];
   }
 
   _canMove(c, r, dir) {
@@ -42,35 +41,87 @@ export class WallFollower {
     return isPassableCell(this.grid[nr * this.D_cols + nc]);
   }
 
+  // Returns the cycle length if recent history repeats, else 0.
+  _cycleLen() {
+    for (const len of [2, 4, 8]) {
+      if (this.recentCells.length < 2 * len) continue;
+      const prev = this.recentCells.slice(-2 * len, -len);
+      const last = this.recentCells.slice(-len);
+      if (prev.every((v, i) => v === last[i])) return len;
+    }
+    return 0;
+  }
+
   step() {
     const [c, r] = this.trace.actorCell;
     const right = TURN_RIGHT[this.facing];
     const left  = TURN_LEFT[this.facing];
     const back  = TURN_BACK[this.facing];
+    const dirs  = [right, this.facing, left, back];
 
     let chosen = null;
-    if (this._canMove(c, r, right)) {
-      this.facing = right; chosen = right;
-    } else if (this._canMove(c, r, this.facing)) {
-      chosen = this.facing;
-    } else if (this._canMove(c, r, left)) {
-      this.facing = left; chosen = left;
-    } else {
-      this.facing = back; chosen = back;
-      if (!this._canMove(c, r, chosen)) {
-        // Truly stuck (isolated cell). Treat as timeout.
+
+    // Cycle escape: if movement history repeats, find a cell outside the cycle.
+    const cLen = this._cycleLen();
+    if (cLen > 0) {
+      const cycleSet = new Set(this.recentCells.slice(-cLen));
+      for (const dir of dirs) {
+        if (!this._canMove(c, r, dir)) continue;
+        const { dc, dr } = DIR[dir];
+        if (!cycleSet.has((r + dr) * this.D_cols + (c + dc))) {
+          chosen = dir;
+          break;
+        }
+      }
+      if (chosen !== null) {
+        this.recentCells = []; // reset so we don't re-trigger immediately
+      } else {
         this.trace.phase = SolverPhase.TIMEOUT;
         return;
       }
     }
-    const d = DIR[chosen];
-    const nc = c + d.dc, nr = r + d.dr;
+
+    // Primary: right-hand rule, treating visited cells as walls.
+    if (chosen === null) {
+      for (const dir of dirs) {
+        if (!this._canMove(c, r, dir)) continue;
+        const { dc, dr } = DIR[dir];
+        if ((this.trace.breadcrumb.get((r + dr) * this.D_cols + (c + dc)) ?? 0) === 0) {
+          chosen = dir;
+          break;
+        }
+      }
+    }
+
+    // Fallback: no unvisited neighbors — head toward the goal.
+    if (chosen === null) {
+      const gc = this.goalIdx % this.D_cols;
+      const gr = (this.goalIdx / this.D_cols) | 0;
+      let bestDist = Infinity;
+      for (const dir of dirs) {
+        if (!this._canMove(c, r, dir)) continue;
+        const { dc, dr } = DIR[dir];
+        const dist = Math.abs(c + dc - gc) + Math.abs(r + dr - gr);
+        if (dist < bestDist) { bestDist = dist; chosen = dir; }
+      }
+    }
+
+    if (chosen === null) {
+      this.trace.phase = SolverPhase.TIMEOUT;
+      return;
+    }
+
+    this.facing = chosen;
+    const { dc, dr } = DIR[chosen];
+    const nc = c + dc, nr = r + dr;
     const nIdx = nr * this.D_cols + nc;
     this.trace.actorCell = [nc, nr];
     this.trace.movementHistory.push(nIdx);
     this.trace.visited.add(nIdx);
-    const prev = this.trace.breadcrumb.get(nIdx) ?? 0;
-    this.trace.breadcrumb.set(nIdx, prev + 1);
+    this.trace.breadcrumb.set(nIdx, (this.trace.breadcrumb.get(nIdx) ?? 0) + 1);
+
+    this.recentCells.push(nIdx);
+    if (this.recentCells.length > 16) this.recentCells.shift();
 
     if (nIdx === this.goalIdx) {
       this.trace.path = this.trace.movementHistory.slice();
