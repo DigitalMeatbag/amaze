@@ -1,0 +1,89 @@
+{
+  "title": "amaze",
+  "type": "web",
+  "file": "index.html",
+  "description": "ASCII maze terminal wallpaper. Generates mazes and animates solvers traversing them.",
+  "preview": "preview.gif",
+  "tags": ["terminal", "ascii", "maze", "roguelike"],
+  "general": {
+    "properties": {
+      "theme": {
+        "order": 0,
+        "text": "Visual Theme",
+        "type": "combo",
+        "value": "random",
+        "options": [
+          { "label": "Random",  "value": "random" },
+          { "label": "Forest",  "value": "forest" },
+          { "label": "Desert",  "value": "desert" },
+          { "label": "Stone",   "value": "stone" },
+          { "label": "Void",    "value": "void" },
+          { "label": "Water",   "value": "water" },
+          { "label": "Lava",    "value": "lava" },
+          { "label": "Cold",    "value": "cold" }
+        ]
+      },
+      "scale": {
+        "order": 1,
+        "text": "Terminal Scale",
+        "type": "combo",
+        "value": "medium",
+        "options": [
+          { "label": "Tiny (densest)", "value": "tiny" },
+          { "label": "Small",          "value": "small" },
+          { "label": "Compact",        "value": "compact" },
+          { "label": "Medium",         "value": "medium" },
+          { "label": "Large",          "value": "large" },
+          { "label": "XL",             "value": "xl" },
+          { "label": "Huge",           "value": "huge" },
+          { "label": "Poster (largest)", "value": "poster" }
+        ]
+      },
+      "intensity": {
+        "order": 2,
+        "text": "Visual Intensity",
+        "type": "combo",
+        "value": "medium",
+        "options": [
+          { "label": "Low",    "value": "low" },
+          { "label": "Medium", "value": "medium" },
+          { "label": "High",   "value": "high" }
+        ]
+      },
+      "stepInterval": {
+        "order": 3,
+        "text": "Solver Step Interval (ms)",
+        "type": "slider",
+        "value": 80,
+        "min": 20,
+        "max": 500,
+        "step": 10
+      },
+      "fadeOpacity": {
+        "order": 4,
+        "text": "Completed Solver Fade Opacity",
+        "type": "slider",
+        "value": 0,
+        "min": 0,
+        "max": 1,
+        "step": 0.05,
+        "precision": 2
+      },
+      "maxSolveTime": {
+        "order": 5,
+        "text": "Maximum Solve Time (seconds)",
+        "type": "slider",
+        "value": 60,
+        "min": 5,
+        "max": 300,
+        "step": 5
+      },
+      "randomWalk": {
+        "order": 6,
+        "text": "Include Random Walk Solver",
+        "type": "bool",
+        "value": false
+      }
+    }
+  }
+}
