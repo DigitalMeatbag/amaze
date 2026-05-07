@@ -31,7 +31,8 @@ export class WallFollower {
     for (const f of ["N", "E", "S", "W"]) {
       if (this._canMove(sc, sr, f)) { this.facing = f; break; }
     }
-    this.recentCells = [];
+    // v2: (position, facing) fingerprint Set for cycle detection.
+    this.stateFingerprints = new Set();
   }
 
   _canMove(c, r, dir) {
@@ -41,17 +42,6 @@ export class WallFollower {
     return isPassableCell(this.grid[nr * this.D_cols + nc]);
   }
 
-  // Returns the cycle length if recent history repeats, else 0.
-  _cycleLen() {
-    for (const len of [2, 4, 8]) {
-      if (this.recentCells.length < 2 * len) continue;
-      const prev = this.recentCells.slice(-2 * len, -len);
-      const last = this.recentCells.slice(-len);
-      if (prev.every((v, i) => v === last[i])) return len;
-    }
-    return 0;
-  }
-
   step() {
     const [c, r] = this.trace.actorCell;
     const right = TURN_RIGHT[this.facing];
@@ -59,37 +49,23 @@ export class WallFollower {
     const back  = TURN_BACK[this.facing];
     const dirs  = [right, this.facing, left, back];
 
+    // v2: (position, facing) fingerprint cycle detection.
+    const fp = `${c},${r},${this.facing}`;
+    if (this.stateFingerprints.has(fp)) {
+      this.trace.phase = SolverPhase.TIMEOUT;
+      return;
+    }
+    this.stateFingerprints.add(fp);
+
     let chosen = null;
 
-    // Cycle escape: if movement history repeats, find a cell outside the cycle.
-    const cLen = this._cycleLen();
-    if (cLen > 0) {
-      const cycleSet = new Set(this.recentCells.slice(-cLen));
-      for (const dir of dirs) {
-        if (!this._canMove(c, r, dir)) continue;
-        const { dc, dr } = DIR[dir];
-        if (!cycleSet.has((r + dr) * this.D_cols + (c + dc))) {
-          chosen = dir;
-          break;
-        }
-      }
-      if (chosen !== null) {
-        this.recentCells = []; // reset so we don't re-trigger immediately
-      } else {
-        this.trace.phase = SolverPhase.TIMEOUT;
-        return;
-      }
-    }
-
     // Primary: right-hand rule, treating visited cells as walls.
-    if (chosen === null) {
-      for (const dir of dirs) {
-        if (!this._canMove(c, r, dir)) continue;
-        const { dc, dr } = DIR[dir];
-        if ((this.trace.breadcrumb.get((r + dr) * this.D_cols + (c + dc)) ?? 0) === 0) {
-          chosen = dir;
-          break;
-        }
+    for (const dir of dirs) {
+      if (!this._canMove(c, r, dir)) continue;
+      const { dc, dr } = DIR[dir];
+      if ((this.trace.breadcrumb.get((r + dr) * this.D_cols + (c + dc)) ?? 0) === 0) {
+        chosen = dir;
+        break;
       }
     }
 
@@ -119,9 +95,6 @@ export class WallFollower {
     this.trace.movementHistory.push(nIdx);
     this.trace.visited.add(nIdx);
     this.trace.breadcrumb.set(nIdx, (this.trace.breadcrumb.get(nIdx) ?? 0) + 1);
-
-    this.recentCells.push(nIdx);
-    if (this.recentCells.length > 16) this.recentCells.shift();
 
     if (nIdx === this.goalIdx) {
       this.trace.path = this.trace.movementHistory.slice();

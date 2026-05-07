@@ -77,6 +77,9 @@ export class BaseTheme {
         this.solveBeat = null;
         this.timeoutBeat = null;
         break;
+      case LifecycleEvent.WALK_TO_GOAL_BEAT:
+        // Base: no-op. Theme subclasses may add effects.
+        break;
       case LifecycleEvent.CYCLE_RESET:
         this.cycleResetBeat = { t0: now, durationMs: 600 };
         break;
@@ -99,7 +102,7 @@ export class BaseTheme {
   renderCell(args) {
     const {
       col, row, semantic, solverColor, attentionFactor, fadeAlpha,
-      ctx, cw, ch, frameCount, isActor, isTimeout,
+      ctx, cw, ch, frameCount, isActor, isTimeout, suppressFlicker,
     } = args;
 
     const palette = this.palette;
@@ -147,10 +150,30 @@ export class BaseTheme {
           fg = solverColor ? solverColor.path : palette.actor;
           useAttention = false;
           useGlow = true;
-          // Cursor flicker: 530ms cycle, 50% on.
-          const phase = (performance.now() % FLICKER_PERIOD_MS) / FLICKER_PERIOD_MS;
-          alpha = phase < 0.5 ? 1.0 : 0.55;
+          if (!suppressFlicker) {
+            // Cursor flicker: 530ms cycle, 50% on.
+            const phase = (performance.now() % FLICKER_PERIOD_MS) / FLICKER_PERIOD_MS;
+            alpha = phase < 0.5 ? 1.0 : 0.55;
+          }
         }
+        break;
+      }
+      case SemanticState.ACTOR_WALK_FOUND: {
+        // v2: "!" beat — walk found goal.
+        glyph = "!";
+        fg = "#FFFFFF";
+        useAttention = false;
+        useGlow = true;
+        alpha = 1.0;
+        break;
+      }
+      case SemanticState.ACTOR_CHANGE_OF_MIND: {
+        // v2: "?" beat — commit-to-path change of mind.
+        glyph = "?";
+        fg = palette.goal || "#FF9900";
+        useAttention = false;
+        useGlow = true;
+        alpha = 1.0;
         break;
       }
       case SemanticState.VISITED: {
@@ -191,6 +214,20 @@ export class BaseTheme {
         glyph = glyphs.floor;
         fg = palette.floor;
       }
+    }
+
+    // ACTOR_WALK_FOUND: always strong glow.
+    if (semantic === SemanticState.ACTOR_WALK_FOUND) {
+      ctx.fillStyle = bg;
+      ctx.fillRect(col * cw, row * ch, cw, ch);
+      ctx.globalAlpha = alpha;
+      ctx.shadowBlur = 12;
+      ctx.shadowColor = "#FFFFFF";
+      ctx.fillStyle = fg;
+      ctx.fillText(glyph, col * cw + cw / 2, row * ch + ch / 2);
+      ctx.shadowBlur = 0;
+      ctx.globalAlpha = 1.0;
+      return;
     }
 
     // Maze-ready beat: tint walls from a darker shade up to the normal wall.

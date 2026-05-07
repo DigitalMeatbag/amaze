@@ -62,7 +62,20 @@ export class Backtracker {
       break;
     }
     if (!advanced) this.stack.pop();
-    return this.stack.length === 0;
+    if (this.stack.length === 0) {
+      // v2 bug fix: repair outer border — backtracker can leave FLOOR on edges.
+      const { D_cols, D_rows, grid } = this;
+      for (let c = 0; c < D_cols; c++) {
+        if (grid[c] === CellType.FLOOR) grid[c] = CellType.WALL;
+        if (grid[(D_rows - 1) * D_cols + c] === CellType.FLOOR) grid[(D_rows - 1) * D_cols + c] = CellType.WALL;
+      }
+      for (let r = 1; r < D_rows - 1; r++) {
+        if (grid[r * D_cols] === CellType.FLOOR) grid[r * D_cols] = CellType.WALL;
+        if (grid[r * D_cols + (D_cols - 1)] === CellType.FLOOR) grid[r * D_cols + (D_cols - 1)] = CellType.WALL;
+      }
+      return true;
+    }
+    return false;
   }
 
   getGrid() { return this.grid; }

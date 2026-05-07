@@ -71,18 +71,25 @@
       },
       "maxSolveTime": {
         "order": 5,
-        "text": "Maximum Solve Time (seconds)",
+        "text": "Max Solve Time Multiplier",
         "type": "slider",
-        "value": 60,
-        "min": 5,
-        "max": 300,
-        "step": 5
+        "value": 1.0,
+        "min": 0.25,
+        "max": 4.0,
+        "step": 0.25,
+        "precision": 2
       },
-      "randomWalk": {
+      "cursorLight": {
         "order": 6,
-        "text": "Include Random Walk Solver",
+        "text": "Cursor Light Source",
         "type": "bool",
-        "value": false
+        "value": true
+      },
+      "hudVisible": {
+        "order": 7,
+        "text": "Show HUD Overlay",
+        "type": "bool",
+        "value": true
       }
     }
   }

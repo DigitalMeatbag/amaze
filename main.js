@@ -18,17 +18,25 @@ const INTER_SOLVER_MS    = 500;
 const FIRST_SOLVER_DELAY = 0;
 const RESET_BEAT_MS      = 1000;
 const RESIZE_DEBOUNCE_MS = 150;
+const CURSOR_FADE_MS     = 500;
 const GENERATION_TARGET_FRAMES = 240; // ~4s @ 60fps
+
+// Grid-aware max solve time (spec §6.7).
+function computeMaxSolveMs(D_cols, D_rows, multiplier) {
+  const gridAwareSeconds = Math.min(5 * Math.sqrt(D_cols * D_rows), 600);
+  return Math.round(gridAwareSeconds * multiplier * 1000);
+}
 
 // ---------- Default config (spec §10.4) ----------
 const DEFAULT_CONFIG = {
-  theme:             "random",
-  scale:             "medium",
-  intensity:         "medium",
-  stepIntervalMs:    80,
-  targetFadeOpacity: 0,
-  maxSolveMs:        60000,
-  randomWalkEnabled: false,
+  theme:              "random",
+  scale:              "medium",
+  intensity:          "medium",
+  stepIntervalMs:     80,
+  targetFadeOpacity:  0,
+  maxSolveMultiplier: 1.0,
+  cursorLight:        true,
+  hudVisible:         true,
 };
 
 const config = { ...DEFAULT_CONFIG };
@@ -40,6 +48,8 @@ const State = Object.freeze({
   GENERATION_BEAT:  "generation_beat",
   SOLVER_INIT:      "solver_init",
   SOLVING:          "solving",
+  BEAT_PENDING:     "beat_pending",    // v2: ! beat before walk-to-goal
+  WALK_TO_GOAL:     "walk_to_goal",    // v2: actor walking to goal cell
   SOLVED_HOLD:      "solved_hold",
   TIMEOUT_HOLD:     "timeout_hold",
   FADING:           "fading",
@@ -66,10 +76,15 @@ let solverIndex = 0;
 let activeSolver = null;
 let trace = null;
 let solverInterval = null;
+let walkInterval = null;        // v2: walk-to-goal interval
+let maxSolveMs = 60000;         // recomputed each cycle from computeMaxSolveMs
 let solveBeatStartTime = 0;
 let fadeStartTime = 0;
 let phaseTimer = null; // setTimeout id for state transitions
 let resizeDebounce = null;
+
+// v2: cursor light state (spec §3.10).
+const cursorState = { col: -1, row: -1, alpha: 0, fadeStart: null };
 
 // HUD state.
 let generatorKey = null;
@@ -109,6 +124,23 @@ function init() {
       hudVisible = !hudVisible;
       if (hudEl) hudEl.style.display = hudVisible ? "" : "none";
     }
+  });
+
+  // v2: cursor light tracking (spec §3.10).
+  canvas.addEventListener("mousemove", (e) => {
+    if (!config.cursorLight) { cursorState.alpha = 0; return; }
+    const rect = canvas.getBoundingClientRect();
+    const cw = renderer.cw;
+    const ch = renderer.ch;
+    cursorState.col = Math.max(0, Math.min(renderer.D_cols - 1,
+      Math.floor((e.clientX - rect.left) / cw)));
+    cursorState.row = Math.max(0, Math.min(renderer.D_rows - 1,
+      Math.floor((e.clientY - rect.top) / ch)));
+    cursorState.alpha = 1.0;
+    cursorState.fadeStart = null;
+  });
+  canvas.addEventListener("mouseleave", () => {
+    cursorState.fadeStart = performance.now();
   });
 
   applyConfig();
@@ -164,11 +196,17 @@ function attachWallpaperHooks() {
           config.targetFadeOpacity = props.fadeOpacity.value;
         }
         if (props.maxSolveTime && props.maxSolveTime.value !== undefined) {
-          config.maxSolveMs = props.maxSolveTime.value * 1000;
+          config.maxSolveMultiplier = props.maxSolveTime.value;
+          // maxSolveMs is recomputed at next cycle start; current solver keeps its limit.
         }
-        if (props.randomWalk && props.randomWalk.value !== undefined) {
-          config.randomWalkEnabled = props.randomWalk.value;
-          needsRestart = true;
+        if (props.cursorLight && props.cursorLight.value !== undefined) {
+          config.cursorLight = props.cursorLight.value;
+          if (!config.cursorLight) cursorState.alpha = 0;
+        }
+        if (props.hudVisible && props.hudVisible.value !== undefined) {
+          config.hudVisible = props.hudVisible.value;
+          hudVisible = config.hudVisible;
+          if (hudEl) hudEl.style.display = hudVisible ? "" : "none";
         }
       } catch (err) {
         console.warn("amaze: error applying WE properties", err);
@@ -268,6 +306,10 @@ function clearSolverInterval() {
   if (solverInterval !== null) { clearInterval(solverInterval); solverInterval = null; }
 }
 
+function clearWalkInterval() {
+  if (walkInterval !== null) { clearInterval(walkInterval); walkInterval = null; }
+}
+
 function updateSolverInterval() {
   // Only useful while a solver is actively stepping; otherwise no-op.
   if (solverInterval === null || trace === null || trace.phase !== SolverPhase.SEARCHING) return;
@@ -283,8 +325,15 @@ function startCycle() {
   theme.setIntensity(config.intensity);
   applyHudTheme(theme);
 
+  // v2: re-init HUD visibility from config each cycle.
+  hudVisible = config.hudVisible;
+  if (hudEl) hudEl.style.display = hudVisible ? "" : "none";
+
   // Resize canvas + body bg with new theme.
   const dims = renderer.resize(config.scale, theme.backgroundColor);
+
+  // v2: compute grid-aware max solve time for this cycle.
+  maxSolveMs = computeMaxSolveMs(dims.D_cols, dims.D_rows, config.maxSolveMultiplier);
 
   // Pick generator weighted by theme.
   const genKey = pickGenerator(activeThemeKey);
@@ -310,7 +359,7 @@ function startCycle() {
   }
   generatorFrameCounter = 0;
 
-  selectedSolvers = selectSolvers(config.randomWalkEnabled);
+  selectedSolvers = selectSolvers();
   solverIndex = 0;
 
   runState = State.GENERATING;
@@ -319,6 +368,7 @@ function startCycle() {
 function restartCycle() {
   clearPhaseTimer();
   clearSolverInterval();
+  clearWalkInterval();
   // Discard everything.
   trace = null;
   activeSolver = null;
@@ -420,16 +470,60 @@ function stepSolverTick() {
   }
   trace.elapsedMs += config.stepIntervalMs;
   trace.stepCount++;
-  if (trace.elapsedMs >= config.maxSolveMs && trace.phase === SolverPhase.SEARCHING) {
+  if (trace.elapsedMs >= maxSolveMs && trace.phase === SolverPhase.SEARCHING) {
     trace.phase = SolverPhase.TIMEOUT;
   }
-  if (trace.phase === SolverPhase.SOLVED) onSolverSolved();
+  if (trace.phase === SolverPhase.SOLVED) onSolverFound();
   else if (trace.phase === SolverPhase.TIMEOUT) onSolverTimeout();
 }
 
-function onSolverSolved() {
+// v2: solver found goal — stop solving, fire beat, then walk actor to goal.
+function onSolverFound() {
   clearSolverInterval();
   solverFrozenMs = Math.max(0, performance.now() - solverWallStartTime);
+  trace.beatGlyph = "!";
+  theme.onLifecycleEvent(LifecycleEvent.WALK_TO_GOAL_BEAT, { solverKey: trace.solverKey });
+  updateHud();
+  runState = State.BEAT_PENDING;
+  clearPhaseTimer();
+  const BEAT_SHOW_MS = 600;
+  phaseTimer = setTimeout(() => {
+    phaseTimer = null;
+    beginWalkToGoal();
+  }, BEAT_SHOW_MS);
+}
+
+function beginWalkToGoal() {
+  // Random walk solvers skip the walk phase — they have no path to replay.
+  const isRandomWalk = trace.solverKey === "randomwalk";
+  if (isRandomWalk || !trace.walkPath || trace.walkPath.length === 0) {
+    onSolverSolved();
+    return;
+  }
+  trace.walkIndex = 0;
+  runState = State.WALK_TO_GOAL;
+  const WALK_STEP_MS = Math.max(10, Math.floor(config.stepIntervalMs / 2));
+  walkInterval = setInterval(stepWalkTick, WALK_STEP_MS);
+}
+
+function stepWalkTick() {
+  if (!trace || trace.walkIndex >= trace.walkPath.length) {
+    clearWalkInterval();
+    onSolverSolved();
+    return;
+  }
+  const idx = trace.walkPath[trace.walkIndex];
+  trace.actorCell = [idx % renderer.D_cols, (idx / renderer.D_cols) | 0];
+  trace.walkIndex++;
+  if (trace.walkIndex >= trace.walkPath.length) {
+    clearWalkInterval();
+    onSolverSolved();
+  }
+}
+
+function onSolverSolved() {
+  clearWalkInterval();
+  trace.beatGlyph = null;
   theme.onLifecycleEvent(LifecycleEvent.SOLVER_SOLVED, { solverKey: trace.solverKey });
   updateHud();
   runState = State.SOLVED_HOLD;
@@ -511,6 +605,13 @@ function loop() {
 function tick() {
   if (!renderer) return;
 
+  // v2: update cursor alpha fade each frame.
+  if (cursorState.fadeStart !== null) {
+    const elapsed = performance.now() - cursorState.fadeStart;
+    cursorState.alpha = Math.max(0, 1.0 - elapsed / CURSOR_FADE_MS);
+    if (cursorState.alpha === 0) { cursorState.fadeStart = null; cursorState.col = -1; cursorState.row = -1; }
+  }
+
   switch (runState) {
     case State.GENERATING: {
       const done = advanceGeneration();
@@ -520,6 +621,7 @@ function tick() {
         trace: null,
         theme,
         isGenerating: true,
+        cursorState,
       });
       if (done) onGenerationComplete();
       break;
@@ -531,6 +633,7 @@ function tick() {
         trace: null,
         theme,
         isGenerating: false,
+        cursorState,
       });
       break;
     }
@@ -541,9 +644,12 @@ function tick() {
         trace,
         theme,
         isGenerating: false,
+        cursorState,
       });
       break;
     }
+    case State.BEAT_PENDING:
+    case State.WALK_TO_GOAL:
     case State.SOLVED_HOLD:
     case State.TIMEOUT_HOLD: {
       renderer.render({
@@ -551,6 +657,7 @@ function tick() {
         trace,
         theme,
         isGenerating: false,
+        cursorState,
       });
       break;
     }
@@ -566,6 +673,7 @@ function tick() {
         trace,
         theme,
         isGenerating: false,
+        cursorState,
       });
       break;
     }
@@ -575,6 +683,7 @@ function tick() {
         trace,
         theme,
         isGenerating: false,
+        cursorState,
       });
       break;
     }

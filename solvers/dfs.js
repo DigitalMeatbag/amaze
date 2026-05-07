@@ -1,7 +1,7 @@
 // Depth-first search. The actor follows the stack: visits forward to a new
 // neighbor or backtracks one step on dead-ends, keeping movement adjacent.
 import { CellType, DIRS4 } from "../maze.js";
-import { reconstructPath, SolverPhase } from "./index.js";
+import { reconstructPath, SolverPhase, exitVisible, computePath } from "./index.js";
 
 export class DFS {
   get key() { return "dfs"; }
@@ -17,6 +17,7 @@ export class DFS {
     this.stack = [startIdx];
     this.visited = new Set([startIdx]);
     this.parent = new Map();
+    this.exitShortcutFired = false;
     const sc = startIdx % D_cols, sr = (startIdx / D_cols) | 0;
     trace.actorCell = [sc, sr];
     trace.visited.add(startIdx);
@@ -30,7 +31,19 @@ export class DFS {
       return;
     }
     const current = this.stack[this.stack.length - 1];
+
+    // v2: exit-visibility shortcut.
+    if (!this.exitShortcutFired && exitVisible(current, this.goalIdx, this.grid, this.D_cols, this.D_rows, this.visited)) {
+      this.exitShortcutFired = true;
+      this.trace.walkPath = computePath(current, this.goalIdx, this.visited, this.grid, this.D_cols, this.D_rows);
+      this.trace.path = reconstructPath(this.parent, this.startIdx, current)
+        .concat(this.trace.walkPath.slice(1));
+      this.trace.phase = SolverPhase.SOLVED;
+      return;
+    }
+
     if (current === this.goalIdx) {
+      this.trace.walkPath = [current];
       this.trace.path = reconstructPath(this.parent, this.startIdx, this.goalIdx);
       this.trace.phase = SolverPhase.SOLVED;
       return;
@@ -71,6 +84,7 @@ export class DFS {
       this.trace.breadcrumb.set(next, this.stack.length);
       this.trace.movementHistory.push(next);
       if (next === this.goalIdx) {
+        this.trace.walkPath = [next];
         this.trace.path = reconstructPath(this.parent, this.startIdx, this.goalIdx);
         this.trace.phase = SolverPhase.SOLVED;
       }

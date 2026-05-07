@@ -119,10 +119,10 @@ export class Renderer {
   }
 
   // Render one frame. `state` shape:
-  //   { grid, trace?, theme, isGenerating, intensity, generatingActiveCells? }
+  //   { grid, trace?, theme, isGenerating, cursorState? }
   render(state) {
     this.frameCount++;
-    const { grid, trace, theme, isGenerating } = state;
+    const { grid, trace, theme, isGenerating, cursorState } = state;
     const ctx = this.ctx;
     const cw = this.cw, ch = this.ch;
 
@@ -140,19 +140,25 @@ export class Renderer {
     // Solver color identity.
     const solverColor = trace ? SOLVER_COLORS[trace.solverKey] : null;
 
-    // Attention field.
+    // Attention field — v2: include cursor source if present.
     let actorCol = -1, actorRow = -1;
     if (!isGenerating && trace && trace.actorCell) {
       actorCol = trace.actorCell[0];
       actorRow = trace.actorCell[1];
     }
-    const attention = computeAttention(actorCol, actorRow, this.D_cols, this.D_rows, this.intensity);
+    const cs = cursorState;
+    const attention = (cs && cs.alpha > 0 && cs.col >= 0)
+      ? computeAttention(actorCol, actorRow, cs.col, cs.row, cs.alpha, this.D_cols, this.D_rows, this.intensity)
+      : computeAttention(actorCol, actorRow, this.D_cols, this.D_rows, this.intensity);
 
     // Semantic overlay map (visited/frontier/path/actor lookups).
     const overlay = this._buildSemanticOverlay(grid, trace);
 
     const fadeAlpha = trace ? trace.fadeAlpha : 1.0;
     const isTimeout = trace && trace.phase === SolverPhase.TIMEOUT;
+
+    // v2: actor semantic derived from beatGlyph.
+    const beatGlyph = trace ? trace.beatGlyph : null;
 
     // Per-cell render.
     for (let r = 0; r < this.D_rows; r++) {
@@ -164,8 +170,6 @@ export class Renderer {
 
         let semantic;
         if (isGenerating) {
-          // During generation, render the grid as it is being carved.
-          // Walls render as GENERATING (theme decoration), floors/start/goal as base.
           if (cellType === CellType.WALL) {
             semantic = SemanticState.WALL;
           } else if (cellType === CellType.START) {
@@ -176,7 +180,14 @@ export class Renderer {
             semantic = SemanticState.FLOOR;
           }
         } else if (ov === 4) {
-          semantic = SemanticState.ACTOR;
+          // v2: actor beat state.
+          if (beatGlyph === "!") {
+            semantic = SemanticState.ACTOR_WALK_FOUND;
+          } else if (beatGlyph === "?") {
+            semantic = SemanticState.ACTOR_CHANGE_OF_MIND;
+          } else {
+            semantic = SemanticState.ACTOR;
+          }
         } else if (cellType === CellType.START) {
           semantic = SemanticState.START;
         } else if (cellType === CellType.GOAL) {
@@ -203,6 +214,8 @@ export class Renderer {
           frameCount: this.frameCount,
           isActor: ov === 4,
           isTimeout,
+          // v2: suppress flicker while beat glyph is showing
+          suppressFlicker: beatGlyph !== null,
         });
       }
     }

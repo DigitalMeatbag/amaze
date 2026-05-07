@@ -3,6 +3,10 @@
 // CA (no birth rule = walls never erode, blobs never merge), then connects
 // survivors with MST corridors.
 import { CellType } from "../maze.js";
+import { Prims } from "./prims.js";
+
+const AREA_HARD_MIN   = 100;  // v2: grids smaller than this delegate to Prim's
+const AREA_MIN_VIABLE = 400;  // v2: grids smaller than this use reduced CA params
 
 export class Organic {
   constructor() {
@@ -37,14 +41,30 @@ export class Organic {
     this.rng        = rng || Math.random;
     this.scratch    = new Uint8Array(D_cols * D_rows);
     this.iter       = 0;
-    this.iterations = this._computeIter(D_cols, D_rows);
+
+    const area = D_cols * D_rows;
+
+    // v2: very small grids — delegate entirely to Prim's (spec §5.3.4).
+    if (area < AREA_HARD_MIN) {
+      this._delegate = new Prims();
+      this._delegate.begin(grid, D_cols, D_rows, rng);
+      this.iterations = 0;
+      return;
+    }
+
+    // v2: small-but-viable grids — use reduced parameters.
+    const small = area < AREA_MIN_VIABLE;
+    this.iterations = small
+      ? Math.max(1, Math.min(2, this._computeIter(D_cols, D_rows)))
+      : this._computeIter(D_cols, D_rows);
+    this._delegate = null;
 
     grid.fill(CellType.WALL);
 
-    const D = D_cols * D_rows;
-    const R = this._computeR(D_cols, D_rows);
-    const N = Math.max(3, Math.min(6, Math.floor(D / 1200)));
-    // R*2+2 guarantees a gap between blob edges while still fitting in short grids.
+    const R = small
+      ? Math.max(3, Math.floor(this._computeR(D_cols, D_rows) * 0.65))
+      : this._computeR(D_cols, D_rows);
+    const N = Math.max(2, Math.min(small ? 4 : 6, Math.floor(area / 1200)));
     const minSep = R * 2 + 2;
 
     // Place N blob centers, enforcing minimum separation.
@@ -52,8 +72,8 @@ export class Organic {
     for (let b = 0; b < N; b++) {
       let c, r, ok, attempts = 0;
       do {
-        c = R + 2 + Math.floor(rng() * (D_cols - 2 * R - 4));
-        r = R + 2 + Math.floor(rng() * (D_rows - 2 * R - 4));
+        c = R + 2 + Math.floor(rng() * Math.max(1, D_cols - 2 * R - 4));
+        r = R + 2 + Math.floor(rng() * Math.max(1, D_rows - 2 * R - 4));
         ok = centers.every(([ec, er]) => Math.hypot(c - ec, r - er) >= minSep);
       } while (!ok && ++attempts < 60);
       if (ok || centers.length === 0) centers.push([c, r]);
@@ -184,6 +204,9 @@ export class Organic {
   }
 
   step() {
+    // v2: delegate to Prim's for very small grids.
+    if (this._delegate) return this._delegate.step();
+
     const { D_cols, D_rows } = this;
     // Shrink-only: walls never become floor, so blobs never merge.
     for (let r = 0; r < D_rows; r++) {
@@ -205,5 +228,5 @@ export class Organic {
     return false;
   }
 
-  getGrid() { return this.grid; }
+  getGrid() { return this._delegate ? this._delegate.getGrid() : this.grid; }
 }
