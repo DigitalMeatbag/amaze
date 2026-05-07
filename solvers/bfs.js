@@ -71,6 +71,7 @@ export class BFS {
         this.trace.path = reconstructPath(this.parent, this.startIdx, idx)
           .concat(this.trace.walkPath.slice(1));
         this.trace.phase = SolverPhase.SOLVED;
+        return;
       }
       if (this.commitIdx >= this.commitPath.length) {
         // Commitment done — change-of-mind beat before resuming search.

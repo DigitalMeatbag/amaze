@@ -71,6 +71,7 @@ export class Greedy {
         this.trace.path = reconstructPath(this.parent, this.startIdx, idx)
           .concat(this.trace.walkPath.slice(1));
         this.trace.phase = SolverPhase.SOLVED;
+        return;
       }
       if (this.commitIdx >= this.commitPath.length) {
         this.trace.beatGlyph = "?";
