@@ -1,6 +1,7 @@
 {
   "title": "amaze",
   "type": "web",
+  "contentrating": "Everyone",
   "file": "index.html",
   "description": "ASCII maze terminal wallpaper. Generates mazes and animates solvers traversing them.",
   "preview": "preview.gif",
