@@ -1,4 +1,10 @@
-// Right-hand Wall Follower. Spec §6.3.5.
+// Right-hand Wall Follower. Spec §6.4.5.
+//
+// Two-phase behavior:
+//   Seek  — actor not yet adjacent to any wall; moves with right-hand bias,
+//            preferring unvisited cells, until it touches a wall surface.
+//   Follow — pure right-hand rule (right → forward → left → back) with
+//            (position, facing) fingerprint cycle detection.
 import { isPassableCell } from "../maze.js";
 import { SolverBase } from "./SolverBase.js";
 import { SolverPhase } from "./SolverPhase.js";
@@ -26,69 +32,85 @@ export class WallFollower extends SolverBase {
     for (const f of ["N", "E", "S", "W"]) {
       if (this._canMove(sc, sr, f)) { this.facing = f; break; }
     }
-    this.maxSteps = this.D_cols * this.D_rows * 8;
-    this.steps = 0;
+    this.stateFingerprints = new Set();
+    this.seekPhase = !this._isWallAdjacent(sc, sr);
   }
 
   _canMove(c, r, dir) {
-    const d = DIR[dir];
-    const nc = c + d.dc, nr = r + d.dr;
+    const { dc, dr } = DIR[dir];
+    const nc = c + dc, nr = r + dr;
     if (nc < 0 || nc >= this.D_cols || nr < 0 || nr >= this.D_rows) return false;
     return isPassableCell(this.grid[nr * this.D_cols + nc]);
   }
 
-  _stepAlgorithm() {
-    const [c, r] = this.trace.actorCell;
-    const right = TURN_RIGHT[this.facing];
-    const left  = TURN_LEFT[this.facing];
-    const back  = TURN_BACK[this.facing];
-    const dirs  = [right, this.facing, left, back];
+  _isWallAdjacent(c, r) {
+    return ["N", "E", "S", "W"].some(dir => !this._canMove(c, r, dir));
+  }
 
-    if (++this.steps > this.maxSteps) {
-      this.trace.phase = SolverPhase.TIMEOUT;
-      return;
-    }
-
-    let chosen = null;
-
-    for (const dir of dirs) {
-      if (!this._canMove(c, r, dir)) continue;
-      const { dc, dr } = DIR[dir];
-      if ((this.trace.breadcrumb.get((r + dr) * this.D_cols + (c + dc)) ?? 0) === 0) {
-        chosen = dir;
-        break;
-      }
-    }
-
-    if (chosen === null) {
-      const gc = this.goalIdx % this.D_cols;
-      const gr = (this.goalIdx / this.D_cols) | 0;
-      const distScale = this.D_cols + this.D_rows;
-      let bestScore = Infinity;
-      for (const dir of dirs) {
-        if (!this._canMove(c, r, dir)) continue;
-        const { dc, dr } = DIR[dir];
-        const nIdx = (r + dr) * this.D_cols + (c + dc);
-        const visits = this.trace.breadcrumb.get(nIdx) ?? 0;
-        const dist = Math.abs(c + dc - gc) + Math.abs(r + dr - gr);
-        const score = visits * distScale + dist;
-        if (score < bestScore) { bestScore = score; chosen = dir; }
-      }
-    }
-
-    if (chosen === null) {
-      this.trace.phase = SolverPhase.TIMEOUT;
-      return;
-    }
-
-    this.facing = chosen;
-    const { dc, dr } = DIR[chosen];
+  _move(dir, c, r) {
+    this.facing = dir;
+    const { dc, dr } = DIR[dir];
     const nc = c + dc, nr = r + dr;
     const nIdx = nr * this.D_cols + nc;
     this.trace.actorCell = [nc, nr];
     this.trace.movementHistory.push(nIdx);
     this.trace.visited.add(nIdx);
     this.trace.breadcrumb.set(nIdx, (this.trace.breadcrumb.get(nIdx) ?? 0) + 1);
+    return nIdx;
+  }
+
+  _stepAlgorithm() {
+    const [c, r] = this.trace.actorCell;
+    if (this.seekPhase && this._isWallAdjacent(c, r)) this.seekPhase = false;
+    if (this.seekPhase) this._seekStep(c, r);
+    else                this._followStep(c, r);
+  }
+
+  _seekStep(c, r) {
+    const dirs = [TURN_RIGHT[this.facing], this.facing, TURN_LEFT[this.facing], TURN_BACK[this.facing]];
+
+    // Prefer unvisited passable neighbors, right-hand bias.
+    let chosen = null;
+    for (const dir of dirs) {
+      if (!this._canMove(c, r, dir)) continue;
+      const { dc, dr } = DIR[dir];
+      if ((this.trace.breadcrumb.get((r + dr) * this.D_cols + (c + dc)) ?? 0) === 0) {
+        chosen = dir; break;
+      }
+    }
+
+    // Fallback: any passable direction (fully-explored open pocket).
+    if (chosen === null) {
+      for (const dir of dirs) {
+        if (this._canMove(c, r, dir)) { chosen = dir; break; }
+      }
+    }
+
+    if (chosen === null) { this.trace.phase = SolverPhase.TIMEOUT; return; }
+
+    const nIdx = this._move(chosen, c, r);
+    if (nIdx === this.goalIdx) {
+      this.trace.path = this.trace.movementHistory.slice();
+      this.trace.phase = SolverPhase.SOLVED;
+    }
+  }
+
+  _followStep(c, r) {
+    const dirs = [TURN_RIGHT[this.facing], this.facing, TURN_LEFT[this.facing], TURN_BACK[this.facing]];
+
+    let chosen = null;
+    for (const dir of dirs) {
+      if (this._canMove(c, r, dir)) { chosen = dir; break; }
+    }
+
+    if (chosen === null) { this.trace.phase = SolverPhase.TIMEOUT; return; }
+
+    const nIdx = this._move(chosen, c, r);
+
+    // Cycle detection: same (position, facing) means a closed loop — terminate.
+    const fp = `${this.trace.actorCell[0]},${this.trace.actorCell[1]},${this.facing}`;
+    if (this.stateFingerprints.has(fp)) { this.trace.phase = SolverPhase.TIMEOUT; return; }
+    this.stateFingerprints.add(fp);
 
     if (nIdx === this.goalIdx) {
       this.trace.path = this.trace.movementHistory.slice();
