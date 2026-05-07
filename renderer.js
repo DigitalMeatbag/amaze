@@ -32,6 +32,7 @@ export class Renderer {
     this.intensity = "medium";
     this.dpr = window.devicePixelRatio || 1;
     this.frameCount = 0;
+    this._overlayBuf = null;
     this._fontReadyPromise = this._waitForFont();
   }
 
@@ -96,7 +97,12 @@ export class Renderer {
   _buildSemanticOverlay(grid, trace) {
     // trace may be null during generation.
     const D = this.D_cols * this.D_rows;
-    const overlay = new Int8Array(D); // 0 = base, 1 = visited, 2 = frontier, 3 = path, 4 = actor
+    if (!this._overlayBuf || this._overlayBuf.length !== D) {
+      this._overlayBuf = new Int8Array(D);
+    } else {
+      this._overlayBuf.fill(0);
+    }
+    const overlay = this._overlayBuf; // 0 = base, 1 = visited, 2 = frontier, 3 = path, 4 = actor
     if (!trace) return overlay;
     if (trace.visited) {
       for (const i of trace.visited) overlay[i] = 1;
@@ -170,6 +176,20 @@ export class Renderer {
     // v2: actor semantic derived from beatGlyph.
     const beatGlyph = trace ? trace.beatGlyph : null;
 
+    // Hoisted args object — mutated per cell to avoid ~1M object allocations/frame.
+    const cellArgs = {
+      col: 0, row: 0,
+      semantic: 0,
+      solverColor,
+      attentionFactor: 0,
+      fadeAlpha,
+      ctx, cw, ch,
+      frameCount: this.frameCount,
+      isActor: false,
+      isTimeout,
+      suppressFlicker: beatGlyph !== null,
+    };
+
     // Per-cell render.
     for (let r = 0; r < this.D_rows; r++) {
       const rowOffset = r * this.D_cols;
@@ -214,19 +234,12 @@ export class Renderer {
           semantic = SemanticState.FLOOR;
         }
 
-        theme.renderCell({
-          col: c, row: r,
-          semantic,
-          solverColor,
-          attentionFactor: attention[i],
-          fadeAlpha,
-          ctx, cw, ch,
-          frameCount: this.frameCount,
-          isActor: ov === 4,
-          isTimeout,
-          // v2: suppress flicker while beat glyph is showing
-          suppressFlicker: beatGlyph !== null,
-        });
+        cellArgs.col = c;
+        cellArgs.row = r;
+        cellArgs.semantic = semantic;
+        cellArgs.attentionFactor = attention[i];
+        cellArgs.isActor = ov === 4;
+        theme.renderCell(cellArgs);
       }
     }
 

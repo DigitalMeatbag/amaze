@@ -18,23 +18,37 @@ function hexToRgb(hex) {
   return [(n >> 16) & 0xff, (n >> 8) & 0xff, n & 0xff];
 }
 
+const _attentionCache = new Map();
 // Multiply a hex foreground by an attention factor (0..1) on RGB channels.
 export function applyAttention(hex, factor) {
   if (factor >= 0.999) return hex;
+  const fq = (factor * 200 + 0.5) | 0;
+  const key = hex + fq;
+  let result = _attentionCache.get(key);
+  if (result !== undefined) return result;
   const [r, g, b] = hexToRgb(hex);
-  const rr = Math.max(0, Math.min(255, Math.round(r * factor)));
-  const gg = Math.max(0, Math.min(255, Math.round(g * factor)));
-  const bb = Math.max(0, Math.min(255, Math.round(b * factor)));
-  return "#" + ((rr << 16) | (gg << 8) | bb).toString(16).padStart(6, "0");
+  const rr = (r * factor + 0.5) | 0;
+  const gg = (g * factor + 0.5) | 0;
+  const bb = (b * factor + 0.5) | 0;
+  result = "#" + ((rr << 16) | (gg << 8) | bb).toString(16).padStart(6, "0");
+  _attentionCache.set(key, result);
+  return result;
 }
 
+const _lerpCache = new Map();
 // Linearly interpolate between two hex colors. t ∈ [0,1].
 export function lerpHex(a, b, t) {
+  const tq = (t * 100 + 0.5) | 0;
+  const key = a + b + tq;
+  let result = _lerpCache.get(key);
+  if (result !== undefined) return result;
   const ar = hexToRgb(a), br = hexToRgb(b);
-  const r = Math.round(ar[0] + (br[0] - ar[0]) * t);
-  const g = Math.round(ar[1] + (br[1] - ar[1]) * t);
-  const bl = Math.round(ar[2] + (br[2] - ar[2]) * t);
-  return "#" + ((r << 16) | (g << 8) | bl).toString(16).padStart(6, "0");
+  const r = (ar[0] + (br[0] - ar[0]) * t + 0.5) | 0;
+  const g = (ar[1] + (br[1] - ar[1]) * t + 0.5) | 0;
+  const bl = (ar[2] + (br[2] - ar[2]) * t + 0.5) | 0;
+  result = "#" + ((r << 16) | (g << 8) | bl).toString(16).padStart(6, "0");
+  _lerpCache.set(key, result);
+  return result;
 }
 
 const FLICKER_PERIOD_MS = 530;
@@ -109,7 +123,6 @@ export class BaseTheme {
     const glyphs = this.glyphs;
     let glyph = glyphs.floor;
     let fg = palette.floor;
-    let bg = palette.bg;
     let useAttention = true;
     let useGlow = false;
     let alpha = 1.0;
@@ -218,14 +231,11 @@ export class BaseTheme {
 
     // ACTOR_WALK_FOUND: always strong glow.
     if (semantic === SemanticState.ACTOR_WALK_FOUND) {
-      ctx.fillStyle = bg;
-      ctx.fillRect(col * cw, row * ch, cw, ch);
-      ctx.globalAlpha = alpha;
-      ctx.shadowBlur = 12;
-      ctx.shadowColor = "#FFFFFF";
       ctx.fillStyle = fg;
+      ctx.globalAlpha = alpha * 0.45;
       ctx.fillText(glyph, col * cw + cw / 2, row * ch + ch / 2);
-      ctx.shadowBlur = 0;
+      ctx.globalAlpha = alpha;
+      ctx.fillText(glyph, col * cw + cw / 2, row * ch + ch / 2);
       ctx.globalAlpha = 1.0;
       return;
     }
@@ -251,24 +261,15 @@ export class BaseTheme {
       fg = applyAttention(fg, attentionFactor);
     }
 
-    // Background fill.
-    ctx.fillStyle = bg;
-    ctx.fillRect(col * cw, row * ch, cw, ch);
-
     // Glyph draw.
-    ctx.globalAlpha = alpha;
-    if (useGlow && this.intensity !== "low") {
-      ctx.shadowBlur = this.intensity === "high" ? 12 : 6;
-      ctx.shadowColor = fg;
-    } else {
-      ctx.shadowBlur = 0;
-    }
     ctx.fillStyle = fg;
-    // Centered text.
-    ctx.fillText(glyph, col * cw + cw / 2, row * ch + ch / 2);
-    if (useGlow) {
-      ctx.shadowBlur = 0;
+    if (useGlow && this.intensity !== "low") {
+      const haloAlpha = this.intensity === "high" ? 0.5 : 0.4;
+      ctx.globalAlpha = alpha * haloAlpha;
+      ctx.fillText(glyph, col * cw + cw / 2, row * ch + ch / 2);
     }
+    ctx.globalAlpha = alpha;
+    ctx.fillText(glyph, col * cw + cw / 2, row * ch + ch / 2);
     ctx.globalAlpha = 1.0;
   }
 
