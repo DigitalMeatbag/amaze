@@ -53,8 +53,16 @@ export function lerpHex(a, b, t) {
 
 const FLICKER_PERIOD_MS = 530;
 
+/**
+ * @abstract
+ * Base class for all themes. Renderer calls:
+ *   theme.backgroundColor, renderCell(args), onLifecycleEvent(event, data),
+ *   renderOverlay(ctx, D_cols, D_rows, cw, ch, frameCount, ctxData),
+ *   hudPalette(), setIntensity(level)
+ */
 export class BaseTheme {
   constructor(palette, glyphs, opts = {}) {
+    if (new.target === BaseTheme) throw new Error("BaseTheme is abstract — extend it");
     this.palette = palette;
     this.glyphs = glyphs;
     this.opts = opts;

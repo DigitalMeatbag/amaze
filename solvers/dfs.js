@@ -1,38 +1,31 @@
-// Depth-first search. The actor follows the stack: visits forward to a new
-// neighbor or backtracks one step on dead-ends, keeping movement adjacent.
+// Depth-first search. Spec §6.3.1.
 import { CellType, DIRS4 } from "../maze.js";
-import { reconstructPath, SolverPhase, exitVisible, computePath } from "./index.js";
+import { SolverBase } from "./SolverBase.js";
+import { SolverPhase } from "./SolverPhase.js";
+import { reconstructPath, exitVisible, computePath } from "./pathfinding.js";
 
-export class DFS {
+export class DFS extends SolverBase {
   get key() { return "dfs"; }
 
-  begin(grid, D_cols, D_rows, trace, rng, startIdx, goalIdx) {
-    this.grid = grid;
-    this.D_cols = D_cols;
-    this.D_rows = D_rows;
-    this.trace = trace;
-    this.rng = rng || Math.random;
-    this.startIdx = startIdx;
-    this.goalIdx = goalIdx;
-    this.stack = [startIdx];
-    this.visited = new Set([startIdx]);
+  _initAlgorithm() {
+    this.stack = [this.startIdx];
+    this.visited = new Set([this.startIdx]);
     this.parent = new Map();
     this.exitShortcutFired = false;
-    const sc = startIdx % D_cols, sr = (startIdx / D_cols) | 0;
-    trace.actorCell = [sc, sr];
-    trace.visited.add(startIdx);
-    trace.breadcrumb.set(startIdx, 1);
-    trace.movementHistory.push(startIdx);
+    const sc = this.startIdx % this.D_cols, sr = (this.startIdx / this.D_cols) | 0;
+    this.trace.actorCell = [sc, sr];
+    this.trace.visited.add(this.startIdx);
+    this.trace.breadcrumb.set(this.startIdx, 1);
+    this.trace.movementHistory.push(this.startIdx);
   }
 
-  step() {
+  _stepAlgorithm() {
     if (this.stack.length === 0) {
       this.trace.phase = SolverPhase.TIMEOUT;
       return;
     }
     const current = this.stack[this.stack.length - 1];
 
-    // v2: exit-visibility shortcut.
     if (!this.exitShortcutFired && exitVisible(current, this.goalIdx, this.grid, this.D_cols, this.D_rows, this.visited)) {
       this.exitShortcutFired = true;
       this.trace.walkPath = computePath(current, this.goalIdx, this.visited, this.grid, this.D_cols, this.D_rows);
@@ -48,7 +41,7 @@ export class DFS {
       this.trace.phase = SolverPhase.SOLVED;
       return;
     }
-    // Find first unvisited passable neighbor.
+
     const cc = current % this.D_cols;
     const cr = (current / this.D_cols) | 0;
     let next = -1;
@@ -62,7 +55,6 @@ export class DFS {
       break;
     }
     if (next === -1) {
-      // Backtrack one step.
       this.stack.pop();
       if (this.stack.length === 0) {
         this.trace.phase = SolverPhase.TIMEOUT;

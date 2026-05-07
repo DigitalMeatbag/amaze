@@ -1,8 +1,10 @@
 // Randomized Prim's. Spec §5.3.2.
 import { CellType, roomCols, roomRows, roomToDisplay } from "../maze.js";
+import { GeneratorBase } from "./GeneratorBase.js";
 
-export class Prims {
+export class Prims extends GeneratorBase {
   constructor() {
+    super();
     this.grid = null;
     this.D_cols = 0;
     this.D_rows = 0;

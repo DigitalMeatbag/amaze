@@ -1,8 +1,10 @@
 // Recursive backtracker. Spec §5.3.1.
 import { CellType, roomCols, roomRows, roomToDisplay } from "../maze.js";
+import { GeneratorBase } from "./GeneratorBase.js";
 
-export class Backtracker {
+export class Backtracker extends GeneratorBase {
   constructor() {
+    super();
     this.grid = null;
     this.D_cols = 0;
     this.D_rows = 0;

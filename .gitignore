@@ -1,0 +1,19 @@
+# Claude Code
+.claude/
+
+# Spec / design docs (not part of the shipped wallpaper)
+amaze_foundation.md
+amaze_spec.md
+amaze_v2_foundation.md
+amaze_v2_spec.md
+
+# OS
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# Editors
+.vscode/
+.idea/
+*.suo
+*.user

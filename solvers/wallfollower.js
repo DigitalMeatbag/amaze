@@ -1,7 +1,7 @@
-// Right-hand Wall Follower. Already adjacent-step; no TraceAdapter.
-// Uses movementHistory rather than just visited because revisits are expected.
-import { CellType, isPassableCell } from "../maze.js";
-import { SolverPhase } from "./index.js";
+// Right-hand Wall Follower. Spec §6.3.5.
+import { isPassableCell } from "../maze.js";
+import { SolverBase } from "./SolverBase.js";
+import { SolverPhase } from "./SolverPhase.js";
 
 const DIR = {
   N: { dc: 0, dr: -1 },
@@ -13,28 +13,20 @@ const TURN_RIGHT = { N: "E", E: "S", S: "W", W: "N" };
 const TURN_LEFT  = { N: "W", W: "S", S: "E", E: "N" };
 const TURN_BACK  = { N: "S", S: "N", E: "W", W: "E" };
 
-export class WallFollower {
+export class WallFollower extends SolverBase {
   get key() { return "wallfollower"; }
 
-  begin(grid, D_cols, D_rows, trace, rng, startIdx, goalIdx) {
-    this.grid = grid;
-    this.D_cols = D_cols;
-    this.D_rows = D_rows;
-    this.trace = trace;
-    this.goalIdx = goalIdx;
-    const sc = startIdx % D_cols, sr = (startIdx / D_cols) | 0;
-    trace.actorCell = [sc, sr];
-    trace.visited.add(startIdx);
-    trace.breadcrumb.set(startIdx, 1);
-    trace.movementHistory.push(startIdx);
+  _initAlgorithm() {
+    const sc = this.startIdx % this.D_cols, sr = (this.startIdx / this.D_cols) | 0;
+    this.trace.actorCell = [sc, sr];
+    this.trace.visited.add(this.startIdx);
+    this.trace.breadcrumb.set(this.startIdx, 1);
+    this.trace.movementHistory.push(this.startIdx);
     this.facing = "N";
     for (const f of ["N", "E", "S", "W"]) {
       if (this._canMove(sc, sr, f)) { this.facing = f; break; }
     }
-    // Step counter: (pos, facing) fingerprints are invalid because the decision
-    // also depends on breadcrumb state, which changes over time. A room can
-    // legitimately revisit the same (pos, facing) with different breadcrumbs.
-    this.maxSteps = D_cols * D_rows * 8;
+    this.maxSteps = this.D_cols * this.D_rows * 8;
     this.steps = 0;
   }
 
@@ -45,7 +37,7 @@ export class WallFollower {
     return isPassableCell(this.grid[nr * this.D_cols + nc]);
   }
 
-  step() {
+  _stepAlgorithm() {
     const [c, r] = this.trace.actorCell;
     const right = TURN_RIGHT[this.facing];
     const left  = TURN_LEFT[this.facing];
@@ -59,7 +51,6 @@ export class WallFollower {
 
     let chosen = null;
 
-    // Primary: right-hand rule, treating visited cells as walls.
     for (const dir of dirs) {
       if (!this._canMove(c, r, dir)) continue;
       const { dc, dr } = DIR[dir];
@@ -69,9 +60,6 @@ export class WallFollower {
       }
     }
 
-    // Fallback: no unvisited neighbors — pick the least-visited passable cell,
-    // breaking ties by distance to goal. This prevents oscillation: after
-    // visiting a cell its breadcrumb count rises, so we won't immediately return.
     if (chosen === null) {
       const gc = this.goalIdx % this.D_cols;
       const gr = (this.goalIdx / this.D_cols) | 0;

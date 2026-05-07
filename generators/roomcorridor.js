@@ -1,11 +1,13 @@
 // Room-and-Corridor. Spec §5.3.5.
 import { CellType, roomCols, roomRows } from "../maze.js";
+import { GeneratorBase } from "./GeneratorBase.js";
 
 const PHASE_ROOMS = 0;
 const PHASE_CORRIDORS = 1;
 
-export class RoomCorridor {
+export class RoomCorridor extends GeneratorBase {
   constructor() {
+    super();
     this.grid = null;
     this.D_cols = 0;
     this.D_rows = 0;

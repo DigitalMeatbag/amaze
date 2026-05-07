@@ -4,12 +4,14 @@
 // survivors with MST corridors.
 import { CellType } from "../maze.js";
 import { Prims } from "./prims.js";
+import { GeneratorBase } from "./GeneratorBase.js";
 
 const AREA_HARD_MIN   = 100;  // v2: grids smaller than this delegate to Prim's
 const AREA_MIN_VIABLE = 400;  // v2: grids smaller than this use reduced CA params
 
-export class Organic {
+export class Organic extends GeneratorBase {
   constructor() {
+    super();
     this.grid       = null;
     this.scratch    = null;
     this.D_cols     = 0;

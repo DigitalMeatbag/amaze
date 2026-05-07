@@ -1,5 +1,6 @@
 // Generator interface and registry. Spec §5.
 
+import { GeneratorBase } from "./GeneratorBase.js";
 import { Backtracker } from "./backtracker.js";
 import { Prims } from "./prims.js";
 import { Division } from "./division.js";
@@ -48,5 +49,7 @@ export const GENERATOR_LABELS = {
 export function makeGenerator(key) {
   const Cls = Generators[key];
   if (!Cls) throw new Error("Unknown generator: " + key);
-  return new Cls();
+  const gen = new Cls();
+  if (!(gen instanceof GeneratorBase)) throw new Error(`Generator "${key}" must extend GeneratorBase`);
+  return gen;
 }

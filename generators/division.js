@@ -1,11 +1,13 @@
 // Recursive Division. Spec §5.3.3.
 import { CellType } from "../maze.js";
+import { GeneratorBase } from "./GeneratorBase.js";
 
 const HORIZONTAL = 0;
 const VERTICAL = 1;
 
-export class Division {
+export class Division extends GeneratorBase {
   constructor() {
+    super();
     this.grid = null;
     this.D_cols = 0;
     this.D_rows = 0;
