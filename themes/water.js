@@ -1,5 +1,7 @@
-import { BaseTheme, applyAttention, lerpHex } from "./base.js";
+import { BaseTheme, lerpHex } from "./base.js";
 import { SemanticState } from "./index.js";
+
+const RIPPLE_CYCLE = ["~", "≈", "≋", "≈"];
 
 export class WaterTheme extends BaseTheme {
   constructor() {
@@ -28,18 +30,28 @@ export class WaterTheme extends BaseTheme {
   timeoutActorGlyph() { return "~"; }
   timeoutActorColor() { return "#0D2A50"; }
 
-  // Water shimmer: tint wall foreground per-cell using a sin wave.
-  // Implemented by overriding the wall path before delegating to base.
+  // MAZE_READY: cycle wall glyphs ~ → ≈ → ≋ → ≈ over the beat.
+  // Medium/High: sinusoidal shimmer on wall color.
   renderCell(args) {
-    if (args.semantic === SemanticState.WALL && this.intensity !== "low") {
-      const m = 0.5 + 0.5 * Math.sin((2 * Math.PI * args.frameCount) / 80 + args.col * 0.3);
-      // Blend wall color toward a brighter ripple highlight.
-      const tinted = lerpHex(this.palette.wall, "#3D6CB0", 0.35 * m);
-      const palBackup = this.palette.wall;
-      this.palette.wall = tinted;
-      super.renderCell(args);
-      this.palette.wall = palBackup;
-      return;
+    if (args.semantic === SemanticState.WALL) {
+      const mb = this._beatProgress(this.mazeReadyBeat);
+      const hasGlyphCycle = mb !== null;
+      const hasShimmer = this.intensity !== "low";
+      if (hasGlyphCycle || hasShimmer) {
+        const glyphBackup = this.glyphs.wall;
+        const palBackup = this.palette.wall;
+        if (hasGlyphCycle) {
+          this.glyphs.wall = RIPPLE_CYCLE[Math.min(3, (mb * 4) | 0)];
+        }
+        if (hasShimmer) {
+          const m = 0.5 + 0.5 * Math.sin((2 * Math.PI * args.frameCount) / 80 + args.col * 0.3);
+          this.palette.wall = lerpHex(palBackup, "#3D6CB0", 0.35 * m);
+        }
+        super.renderCell(args);
+        this.glyphs.wall = glyphBackup;
+        this.palette.wall = palBackup;
+        return;
+      }
     }
     super.renderCell(args);
   }

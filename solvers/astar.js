@@ -59,6 +59,42 @@ export class AStar {
     return true;
   }
 
+  // One A* expansion step; advances trace.frontier every actor step during commit/walk.
+  // Sets SOLVED if goal is popped.
+  _advanceFrontier() {
+    if (this.open.isEmpty()) return;
+    const current = this.open.pop();
+    if (this.visited.has(current)) return; // skip duplicate heap entries
+    if (current === this.goalIdx) {
+      this.commitPath = null;
+      this.trace.frontier.delete(current);
+      this.frontierTarget = current;
+      const [ac, ar] = this.trace.actorCell;
+      const aIdx = ar * this.D_cols + ac;
+      this.trace.walkPath = computePath(aIdx, this.goalIdx, this.visited, this.grid, this.D_cols, this.D_rows);
+      this.trace.path = reconstructPath(this.parent, this.startIdx, aIdx)
+        .concat(this.trace.walkPath.slice(1));
+      this.trace.phase = SolverPhase.SOLVED;
+      return;
+    }
+    this.trace.frontier.delete(current);
+    this.visited.add(current);
+    this.frontierTarget = current;
+    const cg = this.gScore.get(current);
+    for (const n of neighborsOf(current, this.grid, this.D_cols, this.D_rows)) {
+      const tentative = cg + 1;
+      const prev = this.gScore.get(n);
+      if (prev === undefined || tentative < prev) {
+        this.parent.set(n, current);
+        this.gScore.set(n, tentative);
+        const nc = n % this.D_cols, nr = (n / this.D_cols) | 0;
+        const f = tentative + manhattan(nc, nr, this.gc, this.gr);
+        this.open.push(n, f);
+        this.trace.frontier.add(n);
+      }
+    }
+  }
+
   step() {
     if (this.commitPath && this.commitIdx < this.commitPath.length) {
       const idx = this.commitPath[this.commitIdx++];
@@ -79,6 +115,7 @@ export class AStar {
         this.trace.beatGlyph = "?";
         this.commitPath = null;
       }
+      this._advanceFrontier();
       return;
     }
     if (this.trace.beatGlyph === "?") this.trace.beatGlyph = null;
@@ -89,7 +126,10 @@ export class AStar {
       const reached = advanceActorToward(
         this.trace, this.frontierTarget, this.grid, this.D_cols, this.D_rows, this.visited
       );
-      if (reached) return;
+      if (reached) {
+        this._advanceFrontier();
+        return;
+      }
     }
     while (!this.open.isEmpty()) {
       const current = this.open.pop();

@@ -119,10 +119,11 @@ export class Renderer {
   }
 
   // Render one frame. `state` shape:
-  //   { grid, trace?, theme, isGenerating, cursorState? }
+  //   { grid, trace?, theme, isGenerating, cursorState?, displayActorCol?, displayActorRow?, attentionFloor? }
   render(state) {
     this.frameCount++;
-    const { grid, trace, theme, isGenerating, cursorState } = state;
+    const { grid, trace, theme, isGenerating, cursorState,
+            displayActorCol, displayActorRow, attentionFloor = 0 } = state;
     const ctx = this.ctx;
     const cw = this.cw, ch = this.ch;
 
@@ -140,16 +141,24 @@ export class Renderer {
     // Solver color identity.
     const solverColor = trace ? SOLVER_COLORS[trace.solverKey] : null;
 
-    // Attention field — v2: include cursor source if present.
-    let actorCol = -1, actorRow = -1;
-    if (!isGenerating && trace && trace.actorCell) {
+    // Attention field — use display actor position (smoothed) when available.
+    let actorCol = (displayActorCol !== undefined && displayActorCol >= 0) ? displayActorCol : -1;
+    let actorRow = (displayActorRow !== undefined && displayActorRow >= 0) ? displayActorRow : -1;
+    if (actorCol < 0 && !isGenerating && trace && trace.actorCell) {
       actorCol = trace.actorCell[0];
       actorRow = trace.actorCell[1];
     }
     const cs = cursorState;
-    const attention = (cs && cs.alpha > 0 && cs.col >= 0)
-      ? computeAttention(actorCol, actorRow, cs.col, cs.row, cs.alpha, this.D_cols, this.D_rows, this.intensity)
-      : computeAttention(actorCol, actorRow, this.D_cols, this.D_rows, this.intensity);
+    const cursorActive = cs && cs.alpha > 0 && cs.col >= 0;
+    const attention = computeAttention(
+      actorCol, actorRow,
+      cursorActive ? cs.col : -1,
+      cursorActive ? cs.row : -1,
+      cursorActive ? cs.alpha : 0,
+      this.D_cols, this.D_rows,
+      this.intensity,
+      attentionFloor
+    );
 
     // Semantic overlay map (visited/frontier/path/actor lookups).
     const overlay = this._buildSemanticOverlay(grid, trace);

@@ -55,6 +55,32 @@ export class BFS {
     return true;
   }
 
+  // One BFS expansion step; advances trace.frontier every actor step during commit/walk.
+  // Sets SOLVED if goal is dequeued.
+  _advanceFrontier() {
+    if (this.head >= this.queue.length) return;
+    const current = this.queue[this.head++];
+    this.trace.frontier.delete(current);
+    this.frontierTarget = current;
+    if (current === this.goalIdx) {
+      this.commitPath = null;
+      const [ac, ar] = this.trace.actorCell;
+      const aIdx = ar * this.D_cols + ac;
+      this.trace.walkPath = computePath(aIdx, this.goalIdx, this.visited, this.grid, this.D_cols, this.D_rows);
+      this.trace.path = reconstructPath(this.parent, this.startIdx, aIdx)
+        .concat(this.trace.walkPath.slice(1));
+      this.trace.phase = SolverPhase.SOLVED;
+      return;
+    }
+    for (const n of neighborsOf(current, this.grid, this.D_cols, this.D_rows)) {
+      if (this.visited.has(n)) continue;
+      this.parent.set(n, current);
+      this.visited.add(n);
+      this.queue.push(n);
+      this.trace.frontier.add(n);
+    }
+  }
+
   step() {
     // v2: walk along commit path if active.
     if (this.commitPath && this.commitIdx < this.commitPath.length) {
@@ -78,6 +104,7 @@ export class BFS {
         this.trace.beatGlyph = "?";
         this.commitPath = null;
       }
+      this._advanceFrontier();
       return;
     }
 
@@ -94,6 +121,7 @@ export class BFS {
       if (!reached) {
         // Could not route — fall through to expand frontier this step.
       } else {
+        this._advanceFrontier();
         return;
       }
     }

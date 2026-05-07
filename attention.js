@@ -16,6 +16,7 @@ let lastCursorCol = -999;
 let lastCursorRow = -999;
 let lastCursorAlpha = -1;
 let lastIntensity = "";
+let lastFloor = -1;
 let dirty = true;
 
 export function ensureBuffer(D_cols, D_rows) {
@@ -45,39 +46,21 @@ function cosSquareFactor(col, row, centerCol, centerRow, ambient, range) {
 }
 
 // Compute and return the attention field.
-// v2 signature: compute(actorCol, actorRow, cursorCol, cursorRow, cursorAlpha, D_cols, D_rows, intensity)
-// Legacy signature (no cursor args) still accepted for backward compat.
-export function compute(actorCol, actorRow, cursorColOrDCols, cursorRowOrDRows, cursorAlphaOrIntensity, D_colsArg, D_rowsArg, intensityArg) {
-  let cursorCol, cursorRow, cursorAlpha, D_cols, D_rows, intensity;
-  if (D_colsArg !== undefined) {
-    // v2 full signature
-    cursorCol   = cursorColOrDCols;
-    cursorRow   = cursorRowOrDRows;
-    cursorAlpha = cursorAlphaOrIntensity;
-    D_cols      = D_colsArg;
-    D_rows      = D_rowsArg;
-    intensity   = intensityArg;
-  } else {
-    // Legacy: compute(actorCol, actorRow, D_cols, D_rows, intensity)
-    cursorCol   = -1;
-    cursorRow   = -1;
-    cursorAlpha = 0;
-    D_cols      = cursorColOrDCols;
-    D_rows      = cursorRowOrDRows;
-    intensity   = cursorAlphaOrIntensity;
-  }
-
+// Signature: compute(actorCol, actorRow, cursorCol, cursorRow, cursorAlpha, D_cols, D_rows, intensity, floor=0)
+// floor: per-cell minimum brightness [0..1]; used to animate generation→solve brightness fade.
+export function compute(actorCol, actorRow, cursorCol, cursorRow, cursorAlpha, D_cols, D_rows, intensity, floor = 0) {
   ensureBuffer(D_cols, D_rows);
   const { ambient, range } = INTENSITY_PARAMS[intensity] || INTENSITY_PARAMS.medium;
 
-  // No actor (generation phase): full brightness.
+  // No actor (generation phase): full brightness — floor is irrelevant (1.0 ≥ any floor).
   if (actorCol < 0 || actorRow < 0) {
-    if (dirty || lastIntensity !== intensity || lastActorCol !== -1 || lastActorRow !== -1) {
+    if (dirty || lastIntensity !== intensity || lastActorCol !== -1 || lastActorRow !== -1 || lastFloor !== floor) {
       buffer.fill(1.0);
       lastIntensity = intensity;
       lastActorCol = -1;
       lastActorRow = -1;
       lastCursorAlpha = 0;
+      lastFloor = floor;
       dirty = false;
     }
     return buffer;
@@ -85,12 +68,14 @@ export function compute(actorCol, actorRow, cursorColOrDCols, cursorRowOrDRows, 
 
   // At Low intensity: flat ambient, no per-cell falloff.
   if (intensity === "low") {
-    if (dirty || lastIntensity !== intensity || lastActorCol !== -999 || lastActorRow !== -999) {
-      buffer.fill(ambient);
+    const fill = Math.max(floor, ambient);
+    if (dirty || lastIntensity !== intensity || lastActorCol !== -999 || lastActorRow !== -999 || lastFloor !== floor) {
+      buffer.fill(fill);
       lastIntensity = intensity;
       lastActorCol = -999;
       lastActorRow = -999;
       lastCursorAlpha = 0;
+      lastFloor = floor;
       dirty = false;
     }
     return buffer;
@@ -106,7 +91,8 @@ export function compute(actorCol, actorRow, cursorColOrDCols, cursorRowOrDRows, 
     lastIntensity === intensity &&
     lastCursorCol === (hasCursor ? cursorCol : -1) &&
     lastCursorRow === (hasCursor ? cursorRow : -1) &&
-    Math.abs(lastCursorAlpha - (hasCursor ? cursorAlpha : 0)) < 0.01
+    Math.abs(lastCursorAlpha - (hasCursor ? cursorAlpha : 0)) < 0.01 &&
+    Math.abs(lastFloor - floor) < 0.001
   ) {
     return buffer;
   }
@@ -119,7 +105,7 @@ export function compute(actorCol, actorRow, cursorColOrDCols, cursorRowOrDRows, 
         const cursorFactor = cosSquareFactor(c, r, cursorCol, cursorRow, ambient, range);
         val = Math.max(val, cursorFactor * cursorAlpha);
       }
-      buffer[r * D_cols + c] = val;
+      buffer[r * D_cols + c] = Math.max(floor, val);
     }
   }
 
@@ -129,6 +115,7 @@ export function compute(actorCol, actorRow, cursorColOrDCols, cursorRowOrDRows, 
   lastCursorCol = hasCursor ? cursorCol : -1;
   lastCursorRow = hasCursor ? cursorRow : -1;
   lastCursorAlpha = hasCursor ? cursorAlpha : 0;
+  lastFloor = floor;
   dirty = false;
   return buffer;
 }

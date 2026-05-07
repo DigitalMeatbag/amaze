@@ -1,4 +1,5 @@
 import { BaseTheme } from "./base.js";
+import { SemanticState } from "./index.js";
 
 export class ColdTheme extends BaseTheme {
   constructor() {
@@ -23,12 +24,36 @@ export class ColdTheme extends BaseTheme {
       }
     );
     this.frosts = []; // {col, row, t0}
+    this._D_cols = 0; // cached from renderOverlay for crystallization
   }
   _solveAccent() { return "#FFFFFF"; }
   timeoutActorGlyph() { return "x"; }
   timeoutActorColor() { return "#223355"; }
 
+  // MAZE_READY: walls crystallize · → + left to right over 40 frames (~667ms).
+  renderCell(args) {
+    if (args.semantic === SemanticState.WALL && this._D_cols > 0) {
+      const mb = this._beatProgress(this.mazeReadyBeat);
+      if (mb !== null) {
+        // 40 frames at 60fps ≈ 667ms out of 800ms beat = 0.833 beat progress
+        const revealedCols = Math.round(Math.min(1, mb / 0.833) * this._D_cols);
+        if (args.col >= revealedCols) {
+          const glyphBackup = this.glyphs.wall;
+          const palBackup = this.palette.wall;
+          this.glyphs.wall = "·";
+          this.palette.wall = this.palette.wallEmerge || "#1A2A44";
+          super.renderCell(args);
+          this.glyphs.wall = glyphBackup;
+          this.palette.wall = palBackup;
+          return;
+        }
+      }
+    }
+    super.renderCell(args);
+  }
+
   renderOverlay(ctx, D_cols, D_rows, cw, ch, frameCount) {
+    this._D_cols = D_cols;
     if (this.intensity === "low") return;
     if (frameCount % 30 === 0 && this.frosts.length < 8) {
       this.frosts.push({

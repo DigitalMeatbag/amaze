@@ -57,6 +57,37 @@ export class Greedy {
     return true;
   }
 
+  // One Greedy expansion step; advances trace.frontier every actor step during commit/walk.
+  // Sets SOLVED if goal is popped.
+  _advanceFrontier() {
+    while (!this.open.isEmpty()) {
+      const current = this.open.pop();
+      if (this.visited.has(current) && current !== this.startIdx) continue;
+      this.trace.frontier.delete(current);
+      this.visited.add(current);
+      this.frontierTarget = current;
+      if (current === this.goalIdx) {
+        this.commitPath = null;
+        const [ac, ar] = this.trace.actorCell;
+        const aIdx = ar * this.D_cols + ac;
+        this.trace.walkPath = computePath(aIdx, this.goalIdx, this.visited, this.grid, this.D_cols, this.D_rows);
+        this.trace.path = reconstructPath(this.parent, this.startIdx, aIdx)
+          .concat(this.trace.walkPath.slice(1));
+        this.trace.phase = SolverPhase.SOLVED;
+        return;
+      }
+      for (const n of neighborsOf(current, this.grid, this.D_cols, this.D_rows)) {
+        if (this.visited.has(n)) continue;
+        if (this.parent.has(n)) continue;
+        this.parent.set(n, current);
+        const nc = n % this.D_cols, nr = (n / this.D_cols) | 0;
+        this.open.push(n, manhattan(nc, nr, this.gc, this.gr));
+        this.trace.frontier.add(n);
+      }
+      return;
+    }
+  }
+
   step() {
     if (this.commitPath && this.commitIdx < this.commitPath.length) {
       const idx = this.commitPath[this.commitIdx++];
@@ -77,6 +108,7 @@ export class Greedy {
         this.trace.beatGlyph = "?";
         this.commitPath = null;
       }
+      this._advanceFrontier();
       return;
     }
     if (this.trace.beatGlyph === "?") this.trace.beatGlyph = null;
@@ -87,7 +119,10 @@ export class Greedy {
       const reached = advanceActorToward(
         this.trace, this.frontierTarget, this.grid, this.D_cols, this.D_rows, this.visited
       );
-      if (reached) return;
+      if (reached) {
+        this._advanceFrontier();
+        return;
+      }
     }
     while (!this.open.isEmpty()) {
       const current = this.open.pop();

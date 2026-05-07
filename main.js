@@ -83,6 +83,15 @@ let fadeStartTime = 0;
 let phaseTimer = null; // setTimeout id for state transitions
 let resizeDebounce = null;
 
+// Smoothed actor display position and attention floor (attention flashing fix).
+let displayActorCol = -1;
+let displayActorRow = -1;
+let attentionFloor = 0;
+let generationBeatStartTime = 0;
+let solverInitStartTime = 0;
+let solverInitLerpFromCol = -1;
+let solverInitLerpFromRow = -1;
+
 // v2: cursor light state (spec §3.10).
 const cursorState = { col: -1, row: -1, alpha: 0, fadeStart: null };
 
@@ -362,6 +371,14 @@ function startCycle() {
   selectedSolvers = selectSolvers();
   solverIndex = 0;
 
+  displayActorCol = -1;
+  displayActorRow = -1;
+  attentionFloor = 0;
+  generationBeatStartTime = 0;
+  solverInitStartTime = 0;
+  solverInitLerpFromCol = -1;
+  solverInitLerpFromRow = -1;
+
   runState = State.GENERATING;
 }
 
@@ -421,7 +438,17 @@ function onGenerationComplete() {
       }
     }
   }
-  theme.onLifecycleEvent(LifecycleEvent.MAZE_READY);
+  theme.onLifecycleEvent(LifecycleEvent.MAZE_READY, {
+    rooms:  generator.rooms ? generator.rooms.slice() : [],
+    grid,
+    D_cols: renderer.D_cols,
+  });
+  if (startIdx >= 0) {
+    displayActorCol = startIdx % renderer.D_cols;
+    displayActorRow = (startIdx / renderer.D_cols) | 0;
+  }
+  attentionFloor = 1.0;
+  generationBeatStartTime = performance.now();
   runState = State.GENERATION_BEAT;
   clearPhaseTimer();
   phaseTimer = setTimeout(() => {
@@ -574,6 +601,9 @@ function onSolverFadeComplete() {
   if (solverIndex >= selectedSolvers.length) {
     onCycleEnd();
   } else {
+    solverInitStartTime = performance.now();
+    solverInitLerpFromCol = displayActorCol;
+    solverInitLerpFromRow = displayActorRow;
     runState = State.SOLVER_INIT;
     updateHud();
     initNextSolver(false);
@@ -622,34 +652,85 @@ function tick() {
         theme,
         isGenerating: true,
         cursorState,
+        displayActorCol: -1,
+        displayActorRow: -1,
+        attentionFloor: 0,
       });
       if (done) onGenerationComplete();
       break;
     }
-    case State.GENERATION_BEAT:
-    case State.SOLVER_INIT: {
+    case State.GENERATION_BEAT: {
+      const elapsed = performance.now() - generationBeatStartTime;
+      attentionFloor = Math.max(0, 1.0 - elapsed / RESET_BEAT_MS);
       renderer.render({
         grid,
         trace: null,
         theme,
         isGenerating: false,
         cursorState,
+        displayActorCol,
+        displayActorRow,
+        attentionFloor,
+      });
+      break;
+    }
+    case State.SOLVER_INIT: {
+      if (startIdx >= 0 && solverInitLerpFromCol >= 0) {
+        const elapsed = performance.now() - solverInitStartTime;
+        const t = Math.min(1.0, elapsed / INTER_SOLVER_MS);
+        const targetCol = startIdx % renderer.D_cols;
+        const targetRow = (startIdx / renderer.D_cols) | 0;
+        displayActorCol = Math.round(solverInitLerpFromCol + t * (targetCol - solverInitLerpFromCol));
+        displayActorRow = Math.round(solverInitLerpFromRow + t * (targetRow - solverInitLerpFromRow));
+      }
+      renderer.render({
+        grid,
+        trace: null,
+        theme,
+        isGenerating: false,
+        cursorState,
+        displayActorCol,
+        displayActorRow,
+        attentionFloor: 0,
       });
       break;
     }
     case State.SOLVING: {
       refreshHudTime();
+      if (trace && trace.actorCell) {
+        displayActorCol = trace.actorCell[0];
+        displayActorRow = trace.actorCell[1];
+      }
       renderer.render({
         grid,
         trace,
         theme,
         isGenerating: false,
         cursorState,
+        displayActorCol,
+        displayActorRow,
+        attentionFloor: 0,
       });
       break;
     }
     case State.BEAT_PENDING:
-    case State.WALK_TO_GOAL:
+    case State.WALK_TO_GOAL: {
+      if (trace && trace.actorCell) {
+        displayActorCol = trace.actorCell[0];
+        displayActorRow = trace.actorCell[1];
+      }
+      renderer.render({
+        grid,
+        trace,
+        theme,
+        isGenerating: false,
+        cursorState,
+        displayActorCol,
+        displayActorRow,
+        attentionFloor: 0,
+      });
+      break;
+    }
     case State.SOLVED_HOLD:
     case State.TIMEOUT_HOLD: {
       renderer.render({
@@ -658,6 +739,9 @@ function tick() {
         theme,
         isGenerating: false,
         cursorState,
+        displayActorCol,
+        displayActorRow,
+        attentionFloor: 0,
       });
       break;
     }
@@ -674,6 +758,9 @@ function tick() {
         theme,
         isGenerating: false,
         cursorState,
+        displayActorCol,
+        displayActorRow,
+        attentionFloor: 0,
       });
       break;
     }
@@ -684,6 +771,9 @@ function tick() {
         theme,
         isGenerating: false,
         cursorState,
+        displayActorCol,
+        displayActorRow,
+        attentionFloor: 0,
       });
       break;
     }
