@@ -5,14 +5,14 @@ export class VoidTheme extends BaseTheme {
   constructor() {
     super(
       {
-        bg:         "#000005",
-        wall:       "#220833",
-        wallEmerge: "#220833",
-        floor:      "#000005",   // floor renders as blank space
+        bg:         "#000008",
+        wall:       "#4a1880",
+        wallEmerge: "#4a1880",
+        floor:      "#000008",   // floor renders as blank space
         start:      "#CC44FF",
         goal:       "#FF44CC",
         actor:      "#DD55FF",
-        generating: "#110022",
+        generating: "#220840",
       },
       {
         wall: "#",

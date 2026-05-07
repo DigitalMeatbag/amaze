@@ -31,8 +31,11 @@ export class WallFollower {
     for (const f of ["N", "E", "S", "W"]) {
       if (this._canMove(sc, sr, f)) { this.facing = f; break; }
     }
-    // v2: (position, facing) fingerprint Set for cycle detection.
-    this.stateFingerprints = new Set();
+    // Step counter: (pos, facing) fingerprints are invalid because the decision
+    // also depends on breadcrumb state, which changes over time. A room can
+    // legitimately revisit the same (pos, facing) with different breadcrumbs.
+    this.maxSteps = D_cols * D_rows * 8;
+    this.steps = 0;
   }
 
   _canMove(c, r, dir) {
@@ -49,13 +52,10 @@ export class WallFollower {
     const back  = TURN_BACK[this.facing];
     const dirs  = [right, this.facing, left, back];
 
-    // v2: (position, facing) fingerprint cycle detection.
-    const fp = `${c},${r},${this.facing}`;
-    if (this.stateFingerprints.has(fp)) {
+    if (++this.steps > this.maxSteps) {
       this.trace.phase = SolverPhase.TIMEOUT;
       return;
     }
-    this.stateFingerprints.add(fp);
 
     let chosen = null;
 
@@ -69,16 +69,22 @@ export class WallFollower {
       }
     }
 
-    // Fallback: no unvisited neighbors — head toward the goal.
+    // Fallback: no unvisited neighbors — pick the least-visited passable cell,
+    // breaking ties by distance to goal. This prevents oscillation: after
+    // visiting a cell its breadcrumb count rises, so we won't immediately return.
     if (chosen === null) {
       const gc = this.goalIdx % this.D_cols;
       const gr = (this.goalIdx / this.D_cols) | 0;
-      let bestDist = Infinity;
+      const distScale = this.D_cols + this.D_rows;
+      let bestScore = Infinity;
       for (const dir of dirs) {
         if (!this._canMove(c, r, dir)) continue;
         const { dc, dr } = DIR[dir];
+        const nIdx = (r + dr) * this.D_cols + (c + dc);
+        const visits = this.trace.breadcrumb.get(nIdx) ?? 0;
         const dist = Math.abs(c + dc - gc) + Math.abs(r + dr - gr);
-        if (dist < bestDist) { bestDist = dist; chosen = dir; }
+        const score = visits * distScale + dist;
+        if (score < bestScore) { bestScore = score; chosen = dir; }
       }
     }
 

@@ -157,7 +157,8 @@ export class Renderer {
       cursorActive ? cs.alpha : 0,
       this.D_cols, this.D_rows,
       this.intensity,
-      attentionFloor
+      attentionFloor,
+      grid
     );
 
     // Semantic overlay map (visited/frontier/path/actor lookups).
